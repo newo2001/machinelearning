@@ -3,7 +3,7 @@ Usage:
 The following files should be in the same directory.
 - index.html
 - data.js
-- data.idx3-ubyte
+- train-images-idx3-ubyte
 - train-labels.idx1-ubyte
 
 These files should be stored on a webserver and CAN NOT be ran from the filesystem

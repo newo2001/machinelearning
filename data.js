@@ -3,7 +3,7 @@ let index = 0;
 
 function readImageData() {
   labelData = readFile("train-labels.idx1-ubyte", function(v) {labelData = v;});
-  imageData = readFile("data.idx3-ubyte", function(v) {
+  imageData = readFile("train-images.idx3-ubyte", function(v) {
     imageData = v;
     document.getElementById("train").disabled = false;
   });

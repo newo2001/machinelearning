@@ -1,0 +1,190 @@
+<html>
+  <head>
+    <!-- Load TensorFlow.js -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@0.13.0"> </script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/0.7.2/p5.js"></script>
+    <script src="data.js"></script>
+    <script src="plot.js"></script>
+  </head>
+  <body>
+    <div>
+      <button id="train" onclick="train();" disabled>Train</button>
+      <button id="guess" onclick="guess();" disabled>Guess</button>
+      <button onclick="drawing.fill(0);">Clear</button>
+      <br><br>
+      <text>Brush size</text>
+      <input type="number" value="1" min="0" max="14" id="brushSize"></input>
+    </div>
+  </body>
+  <style>
+    div {
+      margin: auto;
+      display: inline;
+    }
+
+    canvas {
+      position: absolute;
+    }
+
+    #brushSize {
+      width: 50px;
+      margin-left: 5px;
+    }
+  </style>
+  <script>
+    const model = tf.sequential();
+    const LEARNING_RATE = 0.15;
+    const optimizer = tf.train.sgd(LEARNING_RATE);
+    const fps = 60;
+    const tileSize = 16;
+    const inSize = [500, 50, tileSize * Image.size, tileSize * Image.size];
+    const windowSize = 1000;
+    const drawing = new Float32Array(Image.size * Image.size);
+    let guessText = "";
+    let training = false;
+    let trainingProgress = 0;
+
+    drawing.fill(0);
+
+    model.add(tf.layers.conv2d({
+      inputShape: [28, 28, 1],
+      kernelSize: 5,
+      filters: 8,
+      strides: 1,
+      activation: "relu",
+      kernalInitializer: "VarianceScaling"
+    }));
+    model.add(tf.layers.maxPooling2d({
+      poolSize: [2, 2],
+      strides: [2, 2]
+    }));
+    model.add(tf.layers.conv2d({
+      kernelSize: 5,
+      filters: 16,
+      strides: 1,
+      activation: 'relu',
+      kernelInitializer: 'VarianceScaling'
+    }));
+    model.add(tf.layers.maxPooling2d({
+      poolSize: [2, 2],
+      strides: [2, 2]
+    }));
+    model.add(tf.layers.flatten());
+    model.add(tf.layers.dense({
+      units: 10,
+      kernelInitializer: 'VarianceScaling',
+      activation: 'softmax'
+    }));
+    model.compile({
+      optimizer: optimizer,
+      loss: 'categoricalCrossentropy',
+      metrics: ['accuracy'],
+    });
+
+    const TRAIN_BATCH_SIZE = 64;
+    const TRAIN_BATCHES = 100;
+    const TEST_BATCH_SIZE = 1000;
+    const TEST_ITERATION_FREQUENCY = 5;
+
+    async function train() {
+      document.getElementById("train").disabled = true;
+      guessText = "Training...";
+      training = true;
+
+      for (let i = 0; i < TRAIN_BATCHES; i++) {
+        trainingProgress = i;
+        const batch = nextBatch(TRAIN_BATCH_SIZE);
+
+        let testBatch;
+        let validationData;
+
+        if (i % TEST_ITERATION_FREQUENCY == 0) {
+          testBatch = nextBatch(TEST_BATCH_SIZE);
+          validationData = [
+            testBatch.xs.reshape([TEST_BATCH_SIZE, 28, 28, 1]),
+            testBatch.labels
+          ];
+        }
+
+        await model.fit(
+          batch.xs.reshape([TRAIN_BATCH_SIZE, 28, 28, 1]),
+          batch.labels,
+          {
+            batchSize: TRAIN_BATCH_SIZE,
+            validationData,
+            epochs: 1
+          }
+        );
+      }
+
+      document.getElementById("guess").disabled = false;
+      training = false;
+      guessText = "Training finished.";
+    }
+
+    function guess() {
+      model.predict(tf.tensor2d(drawing, [1, Image.size * Image.size]).reshape([1, 28, 28, 1])).data().then(function(nums) {
+        let num = nums.reduce(function(a, b) {
+          return Math.max(a, b);
+        });
+        guessText = `${nums.indexOf(num)}, ${(num * 100).toFixed(1)}% sure`;
+      });
+    }
+
+    readImageData();
+
+    function setup() {
+      createCanvas(windowSize + 1, windowSize + 1);
+      frameRate(fps);
+    }
+
+    function draw() {
+      clear();
+
+      // Allows painting on the canvas
+      if (mouseIsPressed) {
+        const brushSize = document.getElementById("brushSize").value;
+
+        if (mouseX > inSize[0] && mouseY > inSize[1] && mouseX < inSize[0] + inSize[3] && mouseY < inSize[1] + inSize[3]) {
+          let x = Math.floor((mouseX - inSize[0]) / tileSize);
+          let y = Math.floor((mouseY - inSize[1]) / tileSize);
+
+          for (let a = -brushSize; a <= brushSize; a++) {
+            for (let b = -brushSize; b <= brushSize; b++) {
+              if (x + a < 0 || x + a >= Image.size || y + b < 0 || y + b >= Image.size)
+                continue;
+              drawing[(y + b) * Image.size + (x + a)] = keyIsDown(16) ? 0 : 1; // shift
+            }
+          }
+        }
+      }
+
+      // Draws the canvas to paint on
+      for (let x = 0; x < 28; x++) {
+        for (let y = 0; y < 28; y++) {
+          fill(255 - 255 * drawing[y * Image.size + x]);
+          rect(inSize[0] + x * tileSize, inSize[1] + y * tileSize, tileSize, tileSize);
+        }
+      }
+
+      // Draws the text below the canvas
+      fill(0);
+      textAlign(CENTER, TOP);
+      textSize(20);
+      text(guessText, inSize[0] + inSize[2] / 2, inSize[1] + inSize[3] + 50);
+
+      // Draws the progressbar during training
+      if (training) {
+        noFill();
+        rect(inSize[0], inSize[1] + inSize[3] + 80, inSize[2], 30);
+        fill(0, 255, 0);
+        rect(inSize[0], inSize[1] + inSize[3] + 80, inSize[2] * (trainingProgress / TRAIN_BATCHES), 30);
+
+        fill(0);
+        textSize(20);
+        textAlign(CENTER, TOP);
+        text(`batch ${trainingProgress} / ${TRAIN_BATCHES} (${Math.ceil(trainingProgress / TRAIN_BATCHES * 100)}%)`, inSize[0] + inSize[2] / 2, inSize[1] + inSize[3] + 85);
+      }
+    }
+  </script>
+</html>
